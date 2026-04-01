@@ -8,13 +8,13 @@ import (
 	"github.com/puzpuzpuz/xsync/v3"
 )
 
-type Pool struct {
+type IndexPool struct {
 	mu   sync.Mutex
 	pool []uint32
 	next uint32
 }
 
-func (p *Pool) Get() uint32 {
+func (p *IndexPool) Get() uint32 {
 	p.mu.Lock()
 	end := len(p.pool)
 	if end > 0 {
@@ -29,10 +29,35 @@ func (p *Pool) Get() uint32 {
 	return atomic.AddUint32(&p.next, 1) - 1
 }
 
-func (p *Pool) Put(index ...uint32) {
+func (p *IndexPool) Put(index ...uint32) {
 	p.mu.Lock()
 	p.pool = append(p.pool, index...)
 	p.mu.Unlock()
+}
+
+type Pool2 struct {
+	shards chan []uint32
+	next   uint32
+}
+
+func (p *Pool2) Get() uint32 {
+	shard := <-p.shards
+	end := len(shard)
+	if end > 0 {
+		end--
+		index := shard[end]
+		shard = shard[:end]
+		p.shards <- shard
+		return index
+	}
+	p.shards <- shard
+	return atomic.AddUint32(&p.next, 1) - 1
+}
+
+func (p *Pool2) Put(indices ...uint32) {
+	shard := <-p.shards
+	shard = append(shard, indices...)
+	p.shards <- shard
 }
 
 type Janitor struct {
@@ -41,6 +66,11 @@ type Janitor struct {
 	last   uint32
 	run    uint32
 	one    uint32
+}
+
+type Pool interface {
+	Get() uint32
+	Put(index ...uint32)
 }
 
 type Limit[T comparable] struct {
@@ -86,7 +116,7 @@ func New[T comparable](count uint32, period uint32, options ...Option) *Limit[T]
 		count:  count,
 		period: period,
 		index:  xsync.NewMapOf[T, uint32](),
-		pool:   Pool{pool: make([]uint32, 0, expandStep)},
+		pool:   &IndexPool{pool: make([]uint32, 0, expandStep)},
 		config: config,
 	}
 }
