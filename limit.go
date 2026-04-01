@@ -35,31 +35,6 @@ func (p *IndexPool) Put(index ...uint32) {
 	p.mu.Unlock()
 }
 
-type Pool2 struct {
-	shards chan []uint32
-	next   uint32
-}
-
-func (p *Pool2) Get() uint32 {
-	shard := <-p.shards
-	end := len(shard)
-	if end > 0 {
-		end--
-		index := shard[end]
-		shard = shard[:end]
-		p.shards <- shard
-		return index
-	}
-	p.shards <- shard
-	return atomic.AddUint32(&p.next, 1) - 1
-}
-
-func (p *Pool2) Put(indices ...uint32) {
-	shard := <-p.shards
-	shard = append(shard, indices...)
-	p.shards <- shard
-}
-
 type Janitor struct {
 	period uint32
 	idle   uint32
