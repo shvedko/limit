@@ -196,3 +196,7 @@ func (l *Limit[T]) Janitor(now uint32) {
 	atomic.StoreUint32(&l.config.one, 0)
 	atomic.StoreUint32(&l.config.run, 0)
 }
+
+func (l *Limit[T]) Size() int {
+	return l.index.Size()
+}
