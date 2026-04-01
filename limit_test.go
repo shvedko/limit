@@ -61,9 +61,11 @@ func TestLimit_Index(t *testing.T) {
 
 func BenchmarkLimit_Index(b *testing.B) {
 	l := limit.New[int](100, 60)
-	for i := 0; i < b.N; i++ {
-		l.Index(rand.Intn(1_000_000))
-	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			l.Index(rand.Intn(1_000_000))
+		}
+	})
 }
 
 func BenchmarkLimit_Allow(b *testing.B) {
