@@ -60,12 +60,14 @@ func TestLimit_Index(t *testing.T) {
 }
 
 func BenchmarkLimit_Index(b *testing.B) {
-	l := limit.New[int](100, 60)
+	p := limit.NewPool()
+	l := limit.New[int](100, 60, limit.WithPool(p))
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			l.Index(rand.Intn(1_000_000))
 		}
 	})
+	b.ReportMetric(float64(p.Miss()), "miss")
 }
 
 func BenchmarkLimit_Allow(b *testing.B) {

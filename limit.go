@@ -8,33 +8,6 @@ import (
 	"github.com/puzpuzpuz/xsync/v3"
 )
 
-type IndexPool struct {
-	mu   sync.Mutex
-	pool []uint32
-	next uint32
-}
-
-func (p *IndexPool) Get() uint32 {
-	p.mu.Lock()
-	end := len(p.pool)
-	if end > 0 {
-		end--
-		index := p.pool[end]
-		p.pool = p.pool[:end]
-		p.mu.Unlock()
-		return index
-	}
-	p.mu.Unlock()
-
-	return atomic.AddUint32(&p.next, 1) - 1
-}
-
-func (p *IndexPool) Put(index ...uint32) {
-	p.mu.Lock()
-	p.pool = append(p.pool, index...)
-	p.mu.Unlock()
-}
-
 type Janitor struct {
 	period uint32
 	idle   uint32
@@ -50,7 +23,6 @@ type Pool interface {
 
 type Limit[T comparable] struct {
 	index    *xsync.MapOf[T, uint32]
-	pool     Pool
 	count    uint32
 	period   uint32
 	shards   atomic.Pointer[[]atomic.Pointer[[]uint32]]
@@ -64,7 +36,10 @@ const (
 	expandStep = 1024
 )
 
-type Config struct{ Janitor }
+type Config struct {
+	pool Pool
+	Janitor
+}
 
 type Option interface{ apply(*Config) }
 
@@ -74,6 +49,10 @@ func (f OptionFunc) apply(c *Config) { f(c) }
 
 func WithJanitor(period, idle uint32) Option {
 	return OptionFunc(func(c *Config) { c.idle, c.period = idle, period })
+}
+
+func WithPool(pool Pool) Option {
+	return OptionFunc(func(c *Config) { c.pool = pool })
 }
 
 func New[T comparable](count uint32, period uint32, options ...Option) *Limit[T] {
@@ -87,23 +66,24 @@ func New[T comparable](count uint32, period uint32, options ...Option) *Limit[T]
 	if config.idle > 0 && config.idle < period {
 		config.idle = period << 1
 	}
+	if config.pool == nil {
+		config.pool = NewPool()
+	}
 	return &Limit[T]{
 		count:  count,
 		period: period,
 		index:  xsync.NewMapOf[T, uint32](),
-		pool:   &IndexPool{pool: make([]uint32, 0, expandStep)},
 		config: config,
 	}
 }
 
 func (l *Limit[T]) Index(id T) uint32 {
 	index, _ := l.index.LoadOrCompute(id, func() uint32 {
-		return l.pool.Get()
+		return l.config.pool.Get()
 	})
 	return index
 }
 
-// Allow return true if allowed
 func (l *Limit[T]) Allow(id T) bool {
 	if l.count == 0 {
 		return false
@@ -174,7 +154,7 @@ func (l *Limit[T]) Janitor(now uint32) {
 		return
 	}
 
-	l.pool.Put(l.recycled...)
+	l.config.pool.Put(l.recycled...)
 	l.recycled = l.recycled[:0]
 
 	l.index.Range(func(id T, index uint32) bool {
