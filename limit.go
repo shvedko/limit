@@ -1,6 +1,7 @@
 package limit
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,7 +43,8 @@ type Stats struct {
 }
 
 type Config struct {
-	pool Pool
+	penalty bool
+	pool    Pool
 	Janitor
 	Stats
 }
@@ -63,6 +65,10 @@ func WithJanitorThreshold(percentage float64) Option {
 
 func WithPool(pool Pool) Option {
 	return OptionFunc(func(c *Config) { c.pool = pool })
+}
+
+func WithPenalty() Option {
+	return OptionFunc(func(c *Config) { c.penalty = true })
 }
 
 func New[T comparable](count uint32, period uint32, options ...Option) *Limit[T] {
@@ -95,6 +101,41 @@ func (l *Limit[T]) Index(id T) uint32 {
 	return index
 }
 
+type Shard []uint32
+
+func (s Shard) AllowWithPenalty(now, count, period uint32) bool {
+	r := s[1:]
+	pos := atomic.AddUint32(&s[0], 1) % count
+	end := atomic.SwapUint32(&r[pos], now)
+	return now-end > period
+}
+
+func (s Shard) AllowWithoutPenalty(now uint32, count uint32, period uint32) bool {
+	var miss uint64
+	r := s[1:]
+	for {
+		pos := atomic.LoadUint32(&s[0])
+		mod := pos % count
+		end := atomic.LoadUint32(&r[mod])
+		if now-end < period {
+			return false
+		}
+		if atomic.CompareAndSwapUint32(&s[0], pos, pos+1) {
+			atomic.StoreUint32(&r[mod], now)
+			return true
+		}
+		miss++
+		runtime.Gosched()
+	}
+}
+
+func (s Shard) Allow(now uint32, count uint32, period uint32, penalty bool) bool {
+	if penalty {
+		return s.AllowWithPenalty(now, count, period)
+	}
+	return s.AllowWithoutPenalty(now, count, period)
+}
+
 func (l *Limit[T]) Allow(id T) bool {
 	if l.count == 0 {
 		return false
@@ -107,10 +148,7 @@ func (l *Limit[T]) Allow(id T) bool {
 
 	index := l.Index(id)
 	shard := l.FindOrCreate(index)
-	ring := shard[1:]
-	pos := atomic.AddUint32(&shard[0], 1)
-	end := atomic.SwapUint32(&ring[pos%l.count], now)
-
+	allow := shard.Allow(now, l.count, l.period, l.config.penalty)
 	if l.config.period > 0 && now-atomic.LoadUint32(&l.config.last) > l.config.period {
 		if atomic.CompareAndSwapUint32(&l.config.run, 0, 1) {
 			atomic.StoreUint32(&l.config.last, now)
@@ -118,10 +156,10 @@ func (l *Limit[T]) Allow(id T) bool {
 		}
 	}
 
-	return now-end > l.period
+	return allow
 }
 
-func (l *Limit[T]) FindOrCreate(index uint32) []uint32 {
+func (l *Limit[T]) FindOrCreate(index uint32) Shard {
 	bucket := index / shardSize
 	offset := index % shardSize
 	stride := l.count + 1

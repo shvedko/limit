@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/shvedko/limit"
 )
@@ -95,16 +96,43 @@ func BenchmarkLimit_Allow_Single(b *testing.B) {
 }
 
 func ExampleLimit_Allow() {
-	l := limit.New[int](3, 60, limit.WithJanitor(300, 3200))
-	for i := 0; i < 5; i++ {
-		fmt.Println(l.Allow(123))
+	l := limit.New[int](1, 1)
+	t := time.NewTicker(time.Second)
+	n := 2
+	for {
+		select {
+		case <-t.C:
+			for j := 0; j < 3; j++ {
+				fmt.Println(l.Allow(123))
+			}
+			n--
+			if n == 0 {
+				t.Stop()
+				return
+			}
+		}
+	}
+	// Output:
+	// true
+	// false
+	// false
+	// true
+	// false
+	// false
+}
+
+func ExampleLimit_Allow_withPenalty() {
+	l := limit.New[int](3, 1, limit.WithPenalty())
+	for i := 0; i < 10; i++ {
+		if l.Allow(123) {
+			fmt.Println(true)
+		}
+		time.Sleep(time.Second / 5)
 	}
 	// Output:
 	// true
 	// true
 	// true
-	// false
-	// false
 }
 
 func TestLimit_Allow(t *testing.T) {
