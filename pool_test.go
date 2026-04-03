@@ -1,7 +1,6 @@
 package limit_test
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 	"testing"
@@ -29,6 +28,6 @@ func TestUint32Pool_Put(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	fmt.Println(p.Miss())
-	fmt.Println(p.Stats())
+	t.Log(
+		p.Stats())
 }

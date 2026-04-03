@@ -16,6 +16,7 @@ const (
 	backSize = 8
 	poolSlot = 1 << 6
 	slotMask = poolSlot - 1
+	ringSize = poolSlot / 1 * backSize
 )
 
 type Uint32Pool struct {
@@ -90,7 +91,7 @@ func (p *Uint32Pool) Lock(i uint32) bool { return atomic.CompareAndSwapUint32(&p
 
 func (p *Uint32Pool) Unlock(i uint32) { atomic.StoreUint32(&p.slots[i].one, 0) }
 
-func (p *Uint32Pool) Stats() (float64, float64, float64) {
+func (p *Uint32Pool) Stats() (float64, float64, float64, uint64) {
 	var t, v float64
 	z := make([]float64, poolSlot)
 	h := make([]uint32, poolSlot)
@@ -123,5 +124,5 @@ func (p *Uint32Pool) Stats() (float64, float64, float64) {
 	}
 	s := math.Sqrt(v / 64)
 	c := s / m * 100
-	return s, c, m
+	return s, c, m, atomic.LoadUint64(&p.miss)
 }
