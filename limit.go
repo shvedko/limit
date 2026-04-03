@@ -9,12 +9,11 @@ import (
 )
 
 type Janitor struct {
-	period  uint32
-	idle    uint32
-	last    uint32
-	run     uint32
-	one     uint32
-	percent int
+	period uint32
+	idle   uint32
+	last   uint32
+	run    uint32
+	one    uint32
 }
 
 type Pool interface {
@@ -38,7 +37,8 @@ const (
 )
 
 type Stats struct {
-	recycled uint64
+	threshold int
+	recycled  uint64
 }
 
 type Config struct {
@@ -58,7 +58,7 @@ func WithJanitor(period, idle uint32) Option {
 }
 
 func WithJanitorThreshold(percentage float64) Option {
-	return OptionFunc(func(c *Config) { c.percent = int(min(1, max(0, percentage)) * 100) })
+	return OptionFunc(func(c *Config) { c.threshold = int(min(1, max(0, percentage)) * 100) })
 }
 
 func WithPool(pool Pool) Option {
@@ -167,7 +167,7 @@ func (l *Limit[T]) Janitor(now uint32) {
 	size := len(l.recycled)
 	part := size / ringSize * ringSize
 	from := size - part
-	if part >= size*l.config.percent/100 {
+	if part >= size*l.config.threshold/100 {
 		l.config.pool.Put(l.recycled[from:]...)
 		l.recycled = l.recycled[:from]
 	}
@@ -187,6 +187,8 @@ func (l *Limit[T]) Janitor(now uint32) {
 		}
 		return true
 	})
+
+	println(now, len(l.recycled))
 
 	atomic.StoreUint64(&l.config.recycled, uint64(len(l.recycled)))
 	atomic.StoreUint32(&l.config.one, 0)

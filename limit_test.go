@@ -3,6 +3,8 @@ package limit_test
 import (
 	"fmt"
 	"math/rand"
+	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/shvedko/limit"
@@ -103,4 +105,28 @@ func ExampleLimit_Allow() {
 	// true
 	// false
 	// false
+}
+
+func TestLimit_Allow(t *testing.T) {
+	t.Skip()
+	var wg sync.WaitGroup
+	p := limit.NewPool()
+	l := limit.New[int](3, 1, limit.WithJanitor(2, 3), limit.WithJanitorThreshold(.1), limit.WithPool(p))
+	w := runtime.GOMAXPROCS(0)
+	for i := 0; i < w; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5_000_000; j++ {
+				for k := 0; k < 50; k++ {
+					l.Allow(j + k)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	t.Log(
+		l.Size(), l.Recycled())
+	t.Log(
+		p.Stats())
 }
