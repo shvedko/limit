@@ -71,21 +71,25 @@ func BenchmarkLimit_Index(b *testing.B) {
 }
 
 func BenchmarkLimit_Allow(b *testing.B) {
-	l := limit.New[int](100, 60)
+	p := limit.NewPool()
+	l := limit.New[int](100, 60, limit.WithPool(p))
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			l.Allow(rand.Intn(1_000_000))
 		}
 	})
+	b.ReportMetric(float64(p.Miss()), "miss")
 }
 
 func BenchmarkLimit_Allow_Single(b *testing.B) {
-	l := limit.New[int](100, 60)
+	p := limit.NewPool()
+	l := limit.New[int](100, 60, limit.WithPool(p))
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			l.Allow(42)
 		}
 	})
+	b.ReportMetric(float64(p.Miss()), "miss")
 }
 
 func ExampleLimit_Allow() {

@@ -173,8 +173,27 @@ func (l *Limit[T]) Janitor(now uint32) {
 		return true
 	})
 
+	println(now, len(l.recycled))
+
 	atomic.StoreUint32(&l.config.one, 0)
 	atomic.StoreUint32(&l.config.run, 0)
+}
+
+func (l *Limit[T]) Clean() {
+	if !atomic.CompareAndSwapUint32(&l.config.one, 0, 1) {
+		return
+	}
+
+	l.index.Range(func(id T, index uint32) bool {
+		l.index.Delete(id)
+		l.recycled = append(l.recycled, index)
+		return true
+	})
+
+	l.config.pool.Put(l.recycled...)
+	l.recycled = l.recycled[:0]
+
+	atomic.StoreUint32(&l.config.one, 0)
 }
 
 func (l *Limit[T]) Size() int {
